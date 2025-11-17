@@ -20,23 +20,18 @@ receivers:
           max_age: 7200
         endpoint: 0.0.0.0:4318
 
-  # <-- NEW: Receiver for Vercel's generic JSON webhook
+  # <-- CORRECTED: Receiver for Vercel's generic JSON webhook
   # This requires the "contrib" version of the OTel Collector
-  httpjson:
-    endpoint: 0.0.0.0:8080 # A new, dedicated port for Vercel
+  webhookevent:
+    endpoint: 0.0.0.0:8080 # The port for Vercel
+    path: /vercel-logs      # A path for the webhook
+    # This receiver automatically puts the JSON body into attributes
+    # and splits the array into individual logs.
 
 # -----------------------------------------------------------------------------
 # 2. EXPORTERS
 # -----------------------------------------------------------------------------
 exporters:
-  # debug:
-  #   verbosity: detailed
-
-  # prometheusremotewrite:
-  #   endpoint: "${env:RAILWAY_PROMETHEUS_ENDPOINT}" 
-  #   tls:
-  #     insecure: true
-
   prometheus:
     endpoint: "0.0.0.0:8889"
 
@@ -48,26 +43,17 @@ exporters:
     tls:
       insecure: true
 
-  # zipkin:
-  #   endpoint: "${env:RAILWAY_ZINPKIN_ENDPOINT}" 
-  #   format: proto
-
-  # otlp/jaeger:
-  #   endpoint: "${env:RAILWAY_JAEGER_ENDPOINT}" 
-  #   tls:
-  #     insecure: true
-
 # -----------------------------------------------------------------------------
 # 3. PROCESSORS
 # -----------------------------------------------------------------------------
 processors:
   batch:
 
-  # <-- NEW: Transform processor to map Vercel's JSON fields to OTel format
-  # This also requires the "contrib" version of the OTel Collector
+  # This transform processor is still needed to map Vercel's
+  # JSON fields to the correct OTel log fields.
   transform/vercel:
     log_statements:
-      # Context: The httpjson receiver puts Vercel's log fields 
+      # Context: The webhookevent receiver puts Vercel's log fields 
       # into the 'attributes' map. We need to move them.
       
       # 1. Set the log body from the Vercel "message" field
@@ -85,14 +71,12 @@ processors:
         statements:
           - set(severity_text, attributes["level"])
           
-      # 4. Optional: Clean up the attributes we just mapped
+      # 4. Optional: Clean up
       - context: log
         statements:
           - delete_key(attributes, "message")
           - delete_key(attributes, "timestamp")
           - delete_key(attributes, "level")
-          # You can keep "id", "deploymentId", "source", "host", "projectId"
-          # as attributes, which is good practice.
 
 # -----------------------------------------------------------------------------
 # 4. EXTENSIONS
@@ -121,7 +105,6 @@ service:
       exporters: [prometheus]
     
     logs:
-      # <-- MODIFIED: Add the new receiver and processor
-      receivers: [otlp, httpjson]
-      processors: [transform/vercel, batch] # Order matters: transform *before* batch
-      exporters: [otlphttp/loki]
+      # <-- MODIFIED: Using the correct 'webhookevent' receiver
+      receivers: [otlp, webhookevent]
+      processors: [transform/vercel
